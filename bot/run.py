@@ -204,7 +204,7 @@ async def ollama_request(message: types.Message):
             if full_response_stripped == "":
                 continue
 
-            if "." in chunk or "\n" in chunk or "!" in chunk or "?" in chunk:
+            if "." in chunk or "\n" in chunk or "!" in chunk or "?" in chunk or "," in chunk:
                 if message.from_user.id in no_stream_ids:
                     # user prefers no streaming
                     pass
