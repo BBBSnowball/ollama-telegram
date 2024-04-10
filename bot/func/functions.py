@@ -44,6 +44,7 @@ async def model_list():
 async def generate(payload: dict, modelname: str, prompt: str):
     # try:
     async with aiohttp.ClientSession() as session:
+        logging.info("generate: " + repr(payload))
         url = f"http://{ollama_base_url}:{ollama_port}/api/chat"
 
         # Stream from API
@@ -66,6 +67,7 @@ def perms_allowed(func):
             elif query:
                 return await func(query=query)
         else:
+            logging.info("access denied for {query.from_user.full_name} ({query.from_user.id})")
             if message:
                 if message and message.chat.type in ["supergroup", "group"]:
                     return

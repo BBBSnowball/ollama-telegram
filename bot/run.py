@@ -35,7 +35,7 @@ CHAT_TYPE_SUPERGROUP = "supergroup"
 
 def is_mentioned_in_group_or_supergroup(message):
     return (message.chat.type in [CHAT_TYPE_GROUP, CHAT_TYPE_SUPERGROUP]
-            and message.text.startswith(mention))
+            and message.text is not None and message.text.startswith(mention))
 
 async def get_bot_info():
     global mention
@@ -188,12 +188,13 @@ async def ollama_request(message: types.Message):
                     {"role": "user", "content": prompt, "images": ([image_base64] if image_base64 else [])}
                 )
         logging.info(
-            f"[Request]: Processing '{prompt}' for {message.from_user.first_name} {message.from_user.last_name}"
+            f"[Request]: Processing '{prompt}' for {message.from_user.first_name} {message.from_user.last_name} ({message.from_user.id})"
         )
         payload = ACTIVE_CHATS.get(message.from_user.id)
         async for response_data in generate(payload, modelname, prompt):
             msg = response_data.get("message")
             if msg is None:
+                logging.info("no msg")
                 continue
             chunk = msg.get("content", "")
             full_response += chunk
