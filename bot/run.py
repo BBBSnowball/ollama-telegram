@@ -9,6 +9,7 @@ import asyncio
 import traceback
 import io
 import base64
+import time
 bot = Bot(token=token)
 dp = Dispatcher()
 builder = InlineKeyboardBuilder()
@@ -137,6 +138,54 @@ async def info_callback_handler(query: types.CallbackQuery):
         disable_web_page_preview=True,
     )
 
+class Updater(object):
+    def __init__(self, bot, chat_id, reply_to_message_id):
+        self.bot = bot
+        self.chat_id = chat_id
+        self.reply_to_message_id = reply_to_message_id
+        self.sent_message = None
+        self.last_sent_text = None
+        self.last_update_time = 0
+
+    async def update(self, text, done, try_markdown=False):
+        if try_markdown:
+            kwargs = { "parse_mode": ParseMode.MARKDOWN_V2 }
+        else:
+            kwargs = {}
+
+        try:
+            if not self.sent_message:
+                self.sent_message = await bot.send_message(
+                    chat_id=self.chat_id,
+                    text=text,
+                    reply_to_message_id=self.reply_to_message_id,
+                    **kwargs
+                )
+            elif text == self.last_sent_text:
+                return
+            elif not done and (time.time() - self.last_update_time < 3 or (len(text) > 500 and time.time() - self.last_update_time < 10)):
+                # hold off to avoid rate limiting
+                # https://telegra.ph/So-your-bot-is-rate-limited-01-26
+                logging.info("skip update because last one was %.1f sec ago" % (time.time() - self.last_update_time))
+                return
+            else:
+                await bot.edit_message_text(
+                    chat_id=self.chat_id,
+                    message_id=self.sent_message.message_id,
+                    text=text,
+                    **kwargs
+                )
+            self.last_sent_text = text
+            self.last_update_time = time.time()
+        except TelegramRetryAfter as e:
+            #FIXME Do something more useful for done=True.
+            self.last_update_time = time.time() + e.retry_after
+        except TelegramBadRequest as e:
+            if try_markdown:
+                # try as plain text
+                return self.update(text, done, try_markdown=False)
+            else:
+                raise
 
 # React on message | LLM will respond on user's message or mention in groups
 @dp.message()
@@ -172,6 +221,7 @@ async def ollama_request(message: types.Message):
             )
             image_base64 = base64.b64encode(image_buffer.getvalue()).decode('utf-8')
         full_response = ""
+        updater = Updater(bot, chat_id=message.chat.id, reply_to_message_id=message.message_id)
         sent_message = None
         last_sent_text = None
 
@@ -208,39 +258,16 @@ async def ollama_request(message: types.Message):
                 if message.from_user.id in no_stream_ids:
                     # user prefers no streaming
                     pass
-                elif sent_message:
-                    if last_sent_text != full_response_stripped:
-                        await bot.edit_message_text(chat_id=message.chat.id, message_id=sent_message.message_id,
-                                                    text=full_response_stripped)
-                        last_sent_text = full_response_stripped
                 else:
-                    sent_message = await bot.send_message(
-                        chat_id=message.chat.id,
-                        text=full_response_stripped,
-                        reply_to_message_id=message.message_id,
-                    )
-                    last_sent_text = full_response_stripped
+                    await updater.update(full_response_stripped, done=False)
 
             if response_data.get("done"):
-                if (
-                        full_response_stripped
-                        and last_sent_text != full_response_stripped
-                ):
-                    if sent_message:
-                        await bot.edit_message_text(chat_id=message.chat.id, message_id=sent_message.message_id,
-                                                    text=full_response_stripped)
-                    else:
-                        sent_message = await bot.send_message(chat_id=message.chat.id,
-                                                                text=full_response_stripped)
-                await bot.edit_message_text(
-                    chat_id=message.chat.id,
-                    message_id=sent_message.message_id,
-                    text=md_autofixer(
+                await updater.update(text=md_autofixer(
                         full_response_stripped
                         + f"\n\nCurrent Model: `{modelname}`**\n**Generated in {response_data.get('total_duration') / 1e9:.2f}s"
                     ),
-                    parse_mode=ParseMode.MARKDOWN_V2,
-                )
+                    done=True,
+                    try_markdown=True)
 
                 async with ACTIVE_CHATS_LOCK:
                     if ACTIVE_CHATS.get(message.from_user.id) is not None:
