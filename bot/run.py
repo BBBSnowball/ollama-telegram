@@ -204,7 +204,10 @@ async def ollama_request(message: types.Message):
                 continue
 
             if "." in chunk or "\n" in chunk or "!" in chunk or "?" in chunk:
-                if sent_message:
+                if message.from_user.id in no_stream_ids:
+                    # user prefers no streaming
+                    pass
+                elif sent_message:
                     if last_sent_text != full_response_stripped:
                         await bot.edit_message_text(chat_id=message.chat.id, message_id=sent_message.message_id,
                                                     text=full_response_stripped)
