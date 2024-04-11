@@ -3,6 +3,7 @@ from aiogram.enums import ParseMode
 from aiogram.filters.command import Command, CommandStart
 from aiogram.types import Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.exceptions import TelegramBadRequest, TelegramRetryAfter
 from func.functions import *
 # Other
 import asyncio
@@ -148,17 +149,18 @@ class Updater(object):
         self.last_update_time = 0
 
     async def update(self, text, done, try_markdown=False):
+        kwargs = {
+            "chat_id": self.chat_id,
+            "text": text,
+        }
         if try_markdown:
-            kwargs = { "parse_mode": ParseMode.MARKDOWN_V2 }
-        else:
-            kwargs = {}
+            kwargs["parse_mode"] = ParseMode.MARKDOWN_V2
 
         try:
             if not self.sent_message:
                 self.sent_message = await bot.send_message(
-                    chat_id=self.chat_id,
-                    text=text,
                     reply_to_message_id=self.reply_to_message_id,
+                    disable_notification=not done,
                     **kwargs
                 )
             elif text == self.last_sent_text:
@@ -170,9 +172,7 @@ class Updater(object):
                 return
             else:
                 await bot.edit_message_text(
-                    chat_id=self.chat_id,
                     message_id=self.sent_message.message_id,
-                    text=text,
                     **kwargs
                 )
             self.last_sent_text = text
@@ -262,12 +262,25 @@ async def ollama_request(message: types.Message):
                     await updater.update(full_response_stripped, done=False)
 
             if response_data.get("done"):
-                await updater.update(text=md_autofixer(
-                        full_response_stripped
-                        + f"\n\nCurrent Model: `{modelname}`**\n**Generated in {response_data.get('total_duration') / 1e9:.2f}s"
-                    ),
-                    done=True,
-                    try_markdown=True)
+                end_text = f"Current Model: `{modelname}`**\n**Generated in {response_data.get('total_duration') / 1e9:.2f}s"
+                if updater.sent_message:
+                    # update existing message with final text
+                    await updater.update(text=md_autofixer(full_response_stripped),
+                        done=True,
+                        try_markdown=True)
+
+                    # send end text as seperate message with notification
+                    await bot.send_message(
+                        chat_id=message.chat.id,
+                        reply_to_message_id=message.message_id,
+                        text=md_autofixer(end_text),
+                        parse_mode=ParseMode.MARKDOWN_V2,
+                    )
+                else:
+                    # send message with notification
+                    await updater.update(text=md_autofixer(full_response_stripped + "\n\n" + end_text),
+                        done=True,
+                        try_markdown=True)
 
                 async with ACTIVE_CHATS_LOCK:
                     if ACTIVE_CHATS.get(message.from_user.id) is not None:
