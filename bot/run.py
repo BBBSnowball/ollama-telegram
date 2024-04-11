@@ -29,6 +29,7 @@ commands = [
 # Context variables for OllamaAPI
 ACTIVE_CHATS = {}
 ACTIVE_CHATS_LOCK = contextLock()
+ACTIVE_MODELS = {}
 modelname = os.getenv("INITMODEL")
 mention = None
 
@@ -72,7 +73,7 @@ async def query_start_handler(query: types.CallbackQuery) -> None:
         disable_web_page_preview=True,
     )
 
-async def handle_reset(message: Message, from_user) -> None:
+async def handle_reset(message: Message, from_user, extra_text="") -> None:
     logging.info(f"/reset by user id {from_user.id}")
     if from_user.id in ACTIVE_CHATS:
         async with ACTIVE_CHATS_LOCK:
@@ -81,7 +82,7 @@ async def handle_reset(message: Message, from_user) -> None:
     # always reply even if this was a no-op
     await bot.send_message(
         chat_id=message.chat.id,
-        text="Chat has been reset",
+        text="Chat has been reset."+extra_text,
     )
 
 # /reset command, wipes context (history)
@@ -153,20 +154,24 @@ async def modelmanager_callback_handler(query: types.CallbackQuery):
 
 @dp.callback_query(lambda query: query.data.startswith("model_"))
 async def model_callback_handler(query: types.CallbackQuery):
-    global modelname
-    global modelfamily
+    global ACTIVE_MODELS
+    global ACTIVE_CHATS_LOCK
     modelname = query.data.split("model_")[1]
+    async with ACTIVE_CHATS_LOCK:
+        ACTIVE_MODELS[query.from_user.id] = modelname
     await query.answer(f"Chosen model: {modelname}")
+    # reset chat so new model will be used
+    await handle_reset(query.message, query.from_user, extra_text=f" Model is {modelname}.")
 
 
 @dp.callback_query(lambda query: query.data == "info")
-@perms_admins
+#@perms_admins
+@perms_allowed
 async def info_callback_handler(query: types.CallbackQuery):
     dotenv_model = os.getenv("INITMODEL")
-    global modelname
     await bot.send_message(
         chat_id=query.message.chat.id,
-        text=f"<b>About Models</b>\nCurrent model: <code>{modelname}</code>\nDefault model: <code>{dotenv_model}</code>\nThis project is under <a href='https://github.com/ruecat/ollama-telegram/blob/main/LICENSE'>MIT License.</a>\n<a href='https://github.com/ruecat/ollama-telegram'>Source Code</a>",
+        text=f"<b>About Models</b>\nCurrent model: <code>{ACTIVE_MODELS.get(query.from_user.id, modelname)}</code>\nDefault model: <code>{dotenv_model}</code>\nThis project is under <a href='https://github.com/ruecat/ollama-telegram/blob/main/LICENSE'>MIT License.</a>\n<a href='https://github.com/ruecat/ollama-telegram'>Source Code</a>",
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
     )
@@ -253,7 +258,7 @@ async def ollama_request(message: types.Message, remove_mention=None):
             # Add prompt to active chats object
             if ACTIVE_CHATS.get(message.from_user.id) is None:
                 ACTIVE_CHATS[message.from_user.id] = {
-                    "model": modelname,
+                    "model": ACTIVE_MODELS.get(message.from_user.id, modelname),
                     "messages": [{"role": "user", "content": prompt, "images": ([image_base64] if image_base64 else [])}],
                     "stream": True,
                 }
