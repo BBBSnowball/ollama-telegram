@@ -49,6 +49,7 @@ async def get_bot_info():
 
 # /start command
 @dp.message(CommandStart())
+@perms_allowed
 async def command_start_handler(message: Message) -> None:
     start_message = f"Welcome, <b>{message.from_user.full_name}</b>!"
     await message.answer(
@@ -61,37 +62,39 @@ async def command_start_handler(message: Message) -> None:
 
 # /reset command, wipes context (history)
 @dp.message(Command("reset"))
+@perms_allowed
 async def command_reset_handler(message: Message) -> None:
-    if message.from_user.id in allowed_ids:
-        if message.from_user.id in ACTIVE_CHATS:
-            async with ACTIVE_CHATS_LOCK:
-                ACTIVE_CHATS.pop(message.from_user.id)
-            logging.info(f"Chat has been reset for {message.from_user.first_name}")
-            await bot.send_message(
-                chat_id=message.chat.id,
-                text="Chat has been reset",
-            )
+    logging.info(f"/reset by user id {message.from_user.id}")
+    if message.from_user.id in ACTIVE_CHATS:
+        async with ACTIVE_CHATS_LOCK:
+            ACTIVE_CHATS.pop(message.from_user.id)
+        logging.info(f"Chat has been reset for {message.from_user.first_name}")
+    # always reply even if this was a no-op
+    await bot.send_message(
+        chat_id=message.chat.id,
+        text="Chat has been reset",
+    )
 
 
 # /history command | Displays dialogs between LLM and USER
 @dp.message(Command("history"))
+@perms_allowed
 async def command_get_context_handler(message: Message) -> None:
-    if message.from_user.id in allowed_ids:
-        if message.from_user.id in ACTIVE_CHATS:
-            messages = ACTIVE_CHATS.get(message.chat.id)["messages"]
-            context = ""
-            for msg in messages:
-                context += f"*{msg['role'].capitalize()}*: {msg['content']}\n"
-            await bot.send_message(
-                chat_id=message.chat.id,
-                text=context,
-                parse_mode=ParseMode.MARKDOWN,
-            )
-        else:
-            await bot.send_message(
-                chat_id=message.chat.id,
-                text="No chat history available for this user",
-            )
+    if message.from_user.id in ACTIVE_CHATS:
+        messages = ACTIVE_CHATS.get(message.chat.id)["messages"]
+        context = ""
+        for msg in messages:
+            context += f"*{msg['role'].capitalize()}*: {msg['content']}\n"
+        await bot.send_message(
+            chat_id=message.chat.id,
+            text=context,
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    else:
+        await bot.send_message(
+            chat_id=message.chat.id,
+            text="No chat history available for this user",
+        )
 
 
 @dp.callback_query(lambda query: query.data == "modelmanager")
