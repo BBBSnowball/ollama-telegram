@@ -41,7 +41,7 @@ async def model_list():
                 return data["models"]
             else:
                 return []
-async def generate(payload: dict, modelname: str, prompt: str):
+async def generate(payload: dict, prompt: str):
     # try:
     async with aiohttp.ClientSession() as session:
         logging.info("generate: " + repr(payload))

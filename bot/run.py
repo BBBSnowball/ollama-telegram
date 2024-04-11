@@ -265,7 +265,7 @@ async def ollama_request(message: types.Message, remove_mention=None):
             f"[Request]: Processing '{prompt}' for {message.from_user.first_name} {message.from_user.last_name} ({message.from_user.id})"
         )
         payload = ACTIVE_CHATS.get(message.from_user.id)
-        async for response_data in generate(payload, modelname, prompt):
+        async for response_data in generate(payload, prompt):
             msg = response_data.get("message")
             if msg is None:
                 logging.info("no msg")
@@ -286,7 +286,7 @@ async def ollama_request(message: types.Message, remove_mention=None):
                     await updater.update(full_response_stripped, done=False)
 
             if response_data.get("done"):
-                end_text = f"Current Model: `{modelname}`**\n**Generated in {response_data.get('total_duration') / 1e9:.2f}s"
+                end_text = f"Current Model: `{payload['model']}`**\n**Generated in {response_data.get('total_duration') / 1e9:.2f}s"
                 if updater.sent_message:
                     # update existing message with final text
                     await updater.update(text=md_autofixer(full_response_stripped),
