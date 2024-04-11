@@ -16,7 +16,8 @@ dp = Dispatcher()
 builder = InlineKeyboardBuilder()
 builder.row(
     types.InlineKeyboardButton(text="ℹ️ About", callback_data="info"),
-    types.InlineKeyboardButton(text="⚙️ Settings", callback_data="modelmanager"),
+    types.InlineKeyboardButton(text="⚙️ Select Model", callback_data="modelmanager"),
+    types.InlineKeyboardButton(text="↺ Reset Chat", callback_data="reset"),
 )
 
 commands = [
@@ -60,22 +61,39 @@ async def command_start_handler(message: Message) -> None:
         disable_web_page_preview=True,
     )
 
-
-# /reset command, wipes context (history)
-@dp.message(Command("reset"))
+@dp.callback_query(lambda query: query.data == "start")
 @perms_allowed
-async def command_reset_handler(message: Message) -> None:
-    logging.info(f"/reset by user id {message.from_user.id}")
-    if message.from_user.id in ACTIVE_CHATS:
+async def query_start_handler(query: types.CallbackQuery) -> None:
+    start_message = f"Welcome, <b>{query.from_user.full_name}</b>!"
+    await query.message.edit_text(
+        start_message,
+        parse_mode=ParseMode.HTML,
+        reply_markup=builder.as_markup(),
+        disable_web_page_preview=True,
+    )
+
+async def handle_reset(message: Message, from_user) -> None:
+    logging.info(f"/reset by user id {from_user.id}")
+    if from_user.id in ACTIVE_CHATS:
         async with ACTIVE_CHATS_LOCK:
-            ACTIVE_CHATS.pop(message.from_user.id)
-        logging.info(f"Chat has been reset for {message.from_user.first_name}")
+            ACTIVE_CHATS.pop(from_user.id)
+        logging.info(f"Chat has been reset for {from_user.first_name}")
     # always reply even if this was a no-op
     await bot.send_message(
         chat_id=message.chat.id,
         text="Chat has been reset",
     )
 
+# /reset command, wipes context (history)
+@dp.message(Command("reset"))
+@perms_allowed
+async def command_reset_handler(message: Message) -> None:
+    await handle_reset(message, message.from_user)
+
+@dp.callback_query(lambda query: query.data == "reset")
+@perms_allowed
+async def query_reset_handler(query: types.CallbackQuery) -> None:
+    await handle_reset(query.message, query.from_user)
 
 # /history command | Displays dialogs between LLM and USER
 @dp.message(Command("history"))
@@ -118,6 +136,16 @@ async def modelmanager_callback_handler(query: types.CallbackQuery):
                 text=f"{modelname} {modelfamilies}", callback_data=f"model_{modelname}"
             )
         )
+    modelmanager_builder.row(
+        types.InlineKeyboardButton(
+            text=f"↺ reset chat", callback_data=f"reset"
+        )
+    )
+    modelmanager_builder.row(
+        types.InlineKeyboardButton(
+            text=f"← back", callback_data=f"start"
+        )
+    )
     await query.message.edit_text(
         f"{len(models)} models available.\n🦙 = Regular\n🦙📷 = Multimodal", reply_markup=modelmanager_builder.as_markup()
     )
