@@ -36,8 +36,9 @@ CHAT_TYPE_GROUP = "group"
 CHAT_TYPE_SUPERGROUP = "supergroup"
 
 def is_mentioned_in_group_or_supergroup(message):
+    text = message.text or message.caption or ""
     return (message.chat.type in [CHAT_TYPE_GROUP, CHAT_TYPE_SUPERGROUP]
-            and message.text is not None and message.text.startswith(mention))
+            and text.find(mention) >= 0)
 
 async def get_bot_info():
     global mention
@@ -197,24 +198,16 @@ async def handle_message(message: types.Message):
     await get_bot_info()
     if message.chat.type == "private":
         await ollama_request(message)
-    if is_mentioned_in_group_or_supergroup(message):
-        # Remove the mention from the message
-        text_without_mention = message.text.replace(mention, "").strip()
-        # Pass the modified text and bot instance to ollama_request
-        await ollama_request(types.Message(
-            message_id=message.message_id,
-            from_user=message.from_user,
-            date=message.date,
-            chat=message.chat,
-            text=text_without_mention
-        ))
-
+    elif is_mentioned_in_group_or_supergroup(message):
+        await ollama_request(message, remove_mention=mention)
 
 ...
-async def ollama_request(message: types.Message):
+async def ollama_request(message: types.Message, remove_mention=None):
     try:
         await bot.send_chat_action(message.chat.id, "typing")
         prompt = message.text or message.caption
+        if remove_mention:
+            prompt = prompt.replace(remove_mention, "").strip()
         image_base64 = ''
         if message.content_type == 'photo':
             image_buffer = io.BytesIO()
